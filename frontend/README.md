@@ -1,54 +1,69 @@
-# React + TypeScript + Vite
+# Dependency Graph Visualizer Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Структура проекта
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default tseslint.config({
-  extends: [
-    // Remove ...tseslint.configs.recommended and replace with this
-    ...tseslint.configs.recommendedTypeChecked,
-    // Alternatively, use this for stricter rules
-    ...tseslint.configs.strictTypeChecked,
-    // Optionally, add this for stylistic rules
-    ...tseslint.configs.stylisticTypeChecked,
-  ],
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
+```
+frontend/
+  ├── src/
+  │   ├── api/
+  │   │   └── api.ts                 # API-слой с типами и функциями для запросов
+  │   ├── components/
+  │   │   ├── file-explorer/
+  │   │   │   ├── FileNode.tsx       # Компонент для узла в файловом дереве
+  │   │   │   └── StatusBar.tsx      # Компонент строки статуса проводника
+  │   │   ├── graph/
+  │   │   │   ├── GraphCanvas.tsx    # Компонент для холста графа
+  │   │   │   ├── GraphLink.tsx      # Компонент для ребра графа
+  │   │   │   ├── GraphNode.tsx      # Компонент для узла графа
+  │   │   │   ├── NodeTooltip.tsx    # Компонент для подсказки при наведении на узел
+  │   │   │   └── types.ts           # Типы для работы с графом
+  │   │   ├── DependencyGraph.tsx    # Основной компонент визуализации графа
+  │   │   └── FileExplorer.tsx       # Компонент проводника файлов
+  │   ├── App.tsx                    # Главный компонент приложения
+  │   ├── main.tsx                   # Точка входа
+  │   └── index.css                  # Глобальные стили
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Внесенные улучшения
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+1. **Выделен API-слой**
+   - Создан файл `api.ts` с функциями для работы с серверным API
+   - Определены типы данных для обмена с сервером
+   - Централизованы все запросы к серверу в одном месте
 
-export default tseslint.config({
-  plugins: {
-    // Add the react-x and react-dom plugins
-    'react-x': reactX,
-    'react-dom': reactDom,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended typescript rules
-    ...reactX.configs['recommended-typescript'].rules,
-    ...reactDom.configs.recommended.rules,
-  },
-})
+2. **Модульная структура компонентов**
+   - Большие компоненты разделены на более мелкие и переиспользуемые
+   - Каждый компонент помещен в свой отдельный файл
+   - Компоненты сгруппированы по функциональности (`file-explorer/`, `graph/`)
+
+3. **Улучшенная типизация**
+   - Определены четкие интерфейсы для всех компонентов и данных
+   - Типы вынесены в отдельные файлы для переиспользования
+
+4. **Стилизация с помощью Styled Components**
+   - Стили связаны с конкретными компонентами
+   - Улучшено форматирование и группировка стилей
+
+5. **Обработка состояний загрузки и ошибок**
+   - Добавлены индикаторы загрузки
+   - Улучшена обработка и отображение ошибок
+
+## Запуск проекта
+
+Для запуска проекта выполните следующие команды:
+
+```bash
+# Установка зависимостей
+npm install
+
+# Запуск в режиме разработки
+npm run dev
 ```
+
+## Технологии
+
+- React
+- TypeScript
+- Styled Components
+- D3.js для визуализации графа
+- Vite для сборки и разработки
