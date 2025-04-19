@@ -1,3 +1,3 @@
-module github.com/user/dependency-graph-visualizer
+module github.com/avor0n/dependency-graph-visualizer
 
-go 1.23.4
+go 1.21

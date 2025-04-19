@@ -1,5 +1,4 @@
-// @ts-nocheck - отключение проверки типов для этого файла
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import styled from 'styled-components';
 import * as d3 from 'd3';
 
@@ -68,6 +67,7 @@ interface Constant {
   value: string;
   type: string;
   filePath: string;
+  lineNum: number;
 }
 
 // Информация о зависимости между константами
@@ -89,6 +89,7 @@ interface D3Node extends d3.SimulationNodeDatum {
   type: string;
   value: string;
   filePath: string;
+  lineNum: number;
   color: string;
 }
 
@@ -106,11 +107,12 @@ interface DependencyGraphProps {
   selectedFile?: string;
 }
 
+// Компонент для визуализации графа зависимостей
 const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [hoverNode, setHoverNode] = useState<D3Node | null>(null);
+  const [hoveredNode, setHoveredNode] = useState<D3Node | null>(null);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
@@ -123,6 +125,7 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
       type: node.type,
       value: node.value,
       filePath: node.filePath,
+      lineNum: node.lineNum,
       color: getNodeColor(node.type)
     }));
 
@@ -222,11 +225,11 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
     d3.select(svgRef.current).selectAll('*').remove();
 
     const svg = d3.select(svgRef.current);
-    const width = svgRef.current.clientWidth;
-    const height = svgRef.current.clientHeight;
+    const width = svgRef.current.clientWidth || 800;
+    const height = svgRef.current.clientHeight || 600;
 
     // Создаем симуляцию с силами
-    const simulation = d3.forceSimulation<D3Node, D3Link>(graphData.nodes)
+    const simulation = d3.forceSimulation<D3Node>(graphData.nodes)
       .force('link', d3.forceLink<D3Node, D3Link>(graphData.links).id(d => d.id).distance(100))
       .force('charge', d3.forceManyBody().strength(-300))
       .force('center', d3.forceCenter(width / 2, height / 2))
@@ -267,7 +270,7 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
       .call(d3.drag<SVGCircleElement, D3Node>()
         .on('start', dragstarted)
         .on('drag', dragged)
-        .on('end', dragended) as any);
+        .on('end', dragended));
 
     // Добавляем текст к узлам
     const text = svg.append('g')
@@ -304,7 +307,7 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
     // Обработчики событий для интерактивности
     node
       .on('mouseover', function(event, d) {
-        setHoverNode(d);
+        setHoveredNode(d);
 
         // Увеличиваем размер узла при наведении
         d3.select(this)
@@ -317,6 +320,7 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
           tooltipRef.current.innerHTML = `
             <div><strong>${d.name}</strong> (${d.type})</div>
             <div>Значение: ${d.value}</div>
+            <div>Строка: ${d.lineNum}</div>
           `;
           tooltipRef.current.style.opacity = '0.9';
           tooltipRef.current.style.left = (event.pageX + 10) + 'px';
@@ -325,22 +329,31 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
 
         // Выделяем связанные ребра
         link
-          .style('stroke', function(l: any) {
-            if (l.source === d || l.target === d) {
+          .style('stroke', function(l) {
+            const linkSource = typeof l.source === 'object' ? l.source.id : l.source;
+            const linkTarget = typeof l.target === 'object' ? l.target.id : l.target;
+
+            if (linkSource === d.id || linkTarget === d.id) {
               return '#fff';
             } else {
               return '#999';
             }
           })
-          .style('stroke-opacity', function(l: any) {
-            if (l.source === d || l.target === d) {
+          .style('stroke-opacity', function(l) {
+            const linkSource = typeof l.source === 'object' ? l.source.id : l.source;
+            const linkTarget = typeof l.target === 'object' ? l.target.id : l.target;
+
+            if (linkSource === d.id || linkTarget === d.id) {
               return 1;
             } else {
               return 0.2;
             }
           })
-          .style('stroke-width', function(l: any) {
-            if (l.source === d || l.target === d) {
+          .style('stroke-width', function(l) {
+            const linkSource = typeof l.source === 'object' ? l.source.id : l.source;
+            const linkTarget = typeof l.target === 'object' ? l.target.id : l.target;
+
+            if (linkSource === d.id || linkTarget === d.id) {
               return 2;
             } else {
               return 1;
@@ -350,23 +363,31 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
         // Выделяем связанные узлы
         node
           .style('opacity', function(o: D3Node) {
-            const isConnected = graphData?.links.some(
-              l => (l.source === d && l.target === o) || (l.source === o && l.target === d)
-            );
-            return isConnected || o === d ? 1 : 0.2;
+            // Проверяем, связаны ли узлы
+            const isConnected = graphData?.links.some(l => {
+              const linkSource = typeof l.source === 'object' ? l.source.id : l.source;
+              const linkTarget = typeof l.target === 'object' ? l.target.id : l.target;
+              return (linkSource === d.id && linkTarget === o.id) ||
+                     (linkSource === o.id && linkTarget === d.id);
+            });
+            return isConnected || o.id === d.id ? 1 : 0.2;
           });
 
         // Выделяем связанные тексты
         text
           .style('opacity', function(o: D3Node) {
-            const isConnected = graphData?.links.some(
-              l => (l.source === d && l.target === o) || (l.source === o && l.target === d)
-            );
-            return isConnected || o === d ? 1 : 0.2;
+            // Проверяем, связаны ли узлы
+            const isConnected = graphData?.links.some(l => {
+              const linkSource = typeof l.source === 'object' ? l.source.id : l.source;
+              const linkTarget = typeof l.target === 'object' ? l.target.id : l.target;
+              return (linkSource === d.id && linkTarget === o.id) ||
+                     (linkSource === o.id && linkTarget === d.id);
+            });
+            return isConnected || o.id === d.id ? 1 : 0.2;
           });
       })
       .on('mouseout', function() {
-        setHoverNode(null);
+        setHoveredNode(null);
 
         // Возвращаем размер узла
         d3.select(this)
@@ -395,48 +416,41 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
         // Останавливаем распространение события
         event.stopPropagation();
 
-        // Если узел уже выбран, снимаем выделение
-        if (d === selectedNode) {
-          setSelectedNode(null);
-          return;
-        }
-
-        // Выбираем узел
-        setSelectedNode(d);
-
         // Центрируем граф на выбранном узле
-        const transform = d3.zoomTransform(svg.node() as any);
-        const scale = transform.k;
-        const x = -d.x * scale + width / 2;
-        const y = -d.y * scale + height / 2;
+        if (d.x && d.y) {
+          const transform = d3.zoomTransform(svg.node() as SVGSVGElement);
+          const scale = transform.k;
+          const x = -d.x * scale + width / 2;
+          const y = -d.y * scale + height / 2;
 
-        svg.transition()
-          .duration(750)
-          .call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
+          svg.transition()
+            .duration(750)
+            .call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
+        }
       });
 
     // Обработчики для перетаскивания узлов
-    function dragstarted(event: any, d: D3Node) {
+    function dragstarted(event: d3.D3DragEvent<SVGCircleElement, D3Node, D3Node>) {
       if (!event.active) simulation.alphaTarget(0.3).restart();
-      d.fx = d.x;
-      d.fy = d.y;
+      event.subject.fx = event.subject.x;
+      event.subject.fy = event.subject.y;
     }
 
-    function dragged(event: any, d: D3Node) {
-      d.fx = event.x;
-      d.fy = event.y;
+    function dragged(event: d3.D3DragEvent<SVGCircleElement, D3Node, D3Node>) {
+      event.subject.fx = event.x;
+      event.subject.fy = event.y;
     }
 
-    function dragended(event: any, d: D3Node) {
+    function dragended(event: d3.D3DragEvent<SVGCircleElement, D3Node, D3Node>) {
       if (!event.active) simulation.alphaTarget(0);
-      d.fx = null;
-      d.fy = null;
+      event.subject.fx = null;
+      event.subject.fy = null;
     }
 
     // Добавляем зум
     const zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([0.1, 4])
-      .on('zoom', (event) => {
+      .on('zoom', (event: d3.D3ZoomEvent<SVGSVGElement, unknown>) => {
         svg.selectAll('g').attr('transform', event.transform.toString());
       });
 
@@ -445,22 +459,19 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
     // Обновляем позиции при каждом тике симуляции
     simulation.on('tick', () => {
       link
-        .attr('x1', d => (d.source as D3Node).x!)
-        .attr('y1', d => (d.source as D3Node).y!)
-        .attr('x2', d => (d.target as D3Node).x!)
-        .attr('y2', d => (d.target as D3Node).y!);
+        .attr('x1', d => (typeof d.source === 'object' ? d.source.x || 0 : 0))
+        .attr('y1', d => (typeof d.source === 'object' ? d.source.y || 0 : 0))
+        .attr('x2', d => (typeof d.target === 'object' ? d.target.x || 0 : 0))
+        .attr('y2', d => (typeof d.target === 'object' ? d.target.y || 0 : 0));
 
       node
-        .attr('cx', d => d.x!)
-        .attr('cy', d => d.y!);
+        .attr('cx', d => d.x || 0)
+        .attr('cy', d => d.y || 0);
 
       text
-        .attr('x', d => d.x!)
-        .attr('y', d => d.y!);
+        .attr('x', d => d.x || 0)
+        .attr('y', d => d.y || 0);
     });
-
-    // Устанавливаем ссылку на узел для D3 в состоянии компонента
-    let selectedNode: D3Node | null = null;
 
     // Очистка при размонтировании
     return () => {
@@ -517,9 +528,9 @@ const DependencyGraph: React.FC<DependencyGraphProps> = ({ selectedFile }) => {
             ? `Граф зависимостей: ${selectedFile}`
             : 'Общий граф зависимостей проекта'}
         </Title>
-        {hoverNode && (
+        {hoveredNode && (
           <div>
-            <strong>{hoverNode.name}</strong> - {hoverNode.type}
+            <strong>{hoveredNode.name}</strong> - {hoveredNode.type} (строка {hoveredNode.lineNum})
           </div>
         )}
       </GraphHeader>
