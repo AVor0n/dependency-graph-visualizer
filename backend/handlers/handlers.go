@@ -5,21 +5,34 @@ import (
 	"net/http"
 	"path/filepath"
 
+	"github.com/avor0n/dependency-graph-visualizer/models"
 	"github.com/avor0n/dependency-graph-visualizer/services"
 )
 
+// FileServiceInterface определяет интерфейс для FileService
+type FileServiceInterface interface {
+	ScanDirectory(relativePath string) models.FileNode
+	GetJSTSFiles() []string
+}
+
+// DependencyServiceInterface определяет интерфейс для DependencyService
+type DependencyServiceInterface interface {
+	GetFileDependencies(filePath string) models.DependencyGraph
+	BuildDependencyGraph()
+}
+
 // Handler представляет обработчики HTTP запросов
 type Handler struct {
-	FileService       *services.FileService
-	DependencyService *services.DependencyService
+	FileService       FileServiceInterface
+	DependencyService DependencyServiceInterface
 	ProjectPath       string
 }
 
 // NewHandler создает новый экземпляр Handler
-func NewHandler(fileService *services.FileService, dependencyService *services.DependencyService, projectPath string) *Handler {
+func NewHandler(fileService services.FileService, dependencyService services.DependencyService, projectPath string) *Handler {
 	return &Handler{
-		FileService:       fileService,
-		DependencyService: dependencyService,
+		FileService:       &fileService,
+		DependencyService: &dependencyService,
 		ProjectPath:       projectPath,
 	}
 }
@@ -77,7 +90,11 @@ func (h *Handler) HandleDependencyGraph(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", "application/json")
 
-	json.NewEncoder(w).Encode(h.DependencyService.Graph)
+	// Здесь мы не можем напрямую получить Graph из интерфейса DependencyServiceInterface
+	// Вместо этого мы можем получить полный граф, передав пустой путь к файлу
+	graph := h.DependencyService.GetFileDependencies("")
+
+	json.NewEncoder(w).Encode(graph)
 }
 
 // HandleFileDependencies обрабатывает запрос зависимостей конкретного файла

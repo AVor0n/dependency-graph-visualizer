@@ -56,8 +56,12 @@ func main() {
 	fmt.Println("Анализ зависимостей в проекте...")
 	dependencyService.BuildDependencyGraph()
 
-	// Инициализируем обработчики
-	handler := handlers.NewHandler(fileService, dependencyService, projectPath)
+	// Инициализируем обработчики с указателями на сервисы
+	handler := &handlers.Handler{
+		FileService:       fileService,
+		DependencyService: dependencyService,
+		ProjectPath:       projectPath,
+	}
 
 	// Регистрируем API endpoints
 	http.HandleFunc("/api/project-info", handler.HandleProjectInfo)

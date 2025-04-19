@@ -233,6 +233,11 @@ func (ds *DependencyService) GetFileDependencies(filePath string) models.Depende
 	ds.GraphMutex.RLock()
 	defer ds.GraphMutex.RUnlock()
 
+	// Если путь пустой, возвращаем весь граф
+	if filePath == "" {
+		return ds.Graph
+	}
+
 	fileAbsPath := filePath
 	if !strings.HasPrefix(filePath, ds.FileService.ProjectPath) {
 		fileAbsPath = filepath.Join(ds.FileService.ProjectPath, filePath)
