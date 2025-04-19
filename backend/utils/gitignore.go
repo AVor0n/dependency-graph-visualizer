@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -70,33 +69,35 @@ func (gi *GitIgnore) IsIgnored(path string) bool {
 	// Нормализуем путь для сравнения
 	path = filepath.ToSlash(path)
 
+	// По умолчанию не игнорируем путь
+	ignored := false
+
 	for _, pattern := range gi.patterns {
 		// Обрабатываем разные типы шаблонов
 
 		// Шаблон исключения (начинается с !)
 		if strings.HasPrefix(pattern, "!") {
-			// Если путь соответствует шаблону исключения, он не игнорируется
 			negPattern := pattern[1:]
 			if matchPattern(path, negPattern) {
+				// Если путь соответствует шаблону исключения, он не игнорируется
 				return false
 			}
 			continue
 		}
 
-		// Обычный шаблон
+		// Проверяем, соответствует ли путь текущему шаблону
 		if matchPattern(path, pattern) {
-			return true
+			ignored = true
 		}
 	}
 
-	return false
+	return ignored
 }
 
 // matchPattern проверяет соответствие пути шаблону .gitignore
 func matchPattern(path, pattern string) bool {
-	// Удаляем слеши в начале и конце
+	// Нормализуем путь и шаблон
 	path = strings.Trim(path, "/")
-	pattern = strings.Trim(pattern, "/")
 
 	// Если шаблон заканчивается на /, то это директория
 	isDirPattern := strings.HasSuffix(pattern, "/")
@@ -104,38 +105,36 @@ func matchPattern(path, pattern string) bool {
 		pattern = strings.TrimSuffix(pattern, "/")
 	}
 
-	// Преобразуем шаблон gitignore в регулярное выражение
-	regexPattern := "^"
-
-	// Если шаблон начинается с /, то он соответствует только корню проекта
-	if strings.HasPrefix(pattern, "/") {
-		pattern = strings.TrimPrefix(pattern, "/")
-	} else {
-		// Иначе шаблон может соответствовать любой части пути
-		regexPattern = ".*?"
-	}
-
-	// Заменяем шаблонные символы на их регулярные выражения
-	pattern = strings.ReplaceAll(pattern, ".", "\\.")
-	pattern = strings.ReplaceAll(pattern, "**/", ".*?")
-	pattern = strings.ReplaceAll(pattern, "**", ".*?")
-	pattern = strings.ReplaceAll(pattern, "*", "[^/]*?")
-	pattern = strings.ReplaceAll(pattern, "?", "[^/]")
-
-	regexPattern += pattern
-
-	// Если это шаблон директории, он должен соответствовать всему пути или подпапке
+	// Проверка для шаблона директории
 	if isDirPattern {
-		regexPattern += "(/.*)?$"
-	} else {
-		regexPattern += "$"
+		// Путь соответствует, если он содержит эту директорию в любом месте
+		return strings.HasSuffix(path, pattern) ||
+			   strings.Contains(path, pattern+"/") ||
+			   path == pattern
 	}
 
-	regex, err := regexp.Compile(regexPattern)
-	if err != nil {
-		log.Printf("Ошибка при компиляции регулярного выражения для шаблона %s: %v\n", pattern, err)
-		return false
+	// Проверка для шаблонов, начинающихся с /
+	if strings.HasPrefix(pattern, "/") {
+		// Шаблон с / в начале соответствует только файлам в корне проекта
+		pattern = strings.TrimPrefix(pattern, "/")
+		return path == pattern || strings.HasPrefix(path, pattern+"/")
 	}
 
-	return regex.MatchString(path)
+	// Проверка для обычных шаблонов с расширением (*.ext)
+	if strings.HasPrefix(pattern, "*") {
+		ext := strings.TrimPrefix(pattern, "*")
+		return strings.HasSuffix(path, ext) || strings.Contains(path, "/"+pattern)
+	}
+
+	// Проверка для шаблонов с именем файла (file.*)
+	if strings.HasSuffix(pattern, "*") {
+		basename := strings.TrimSuffix(pattern, "*")
+		return strings.HasPrefix(filepath.Base(path), basename) ||
+			   strings.Contains(path, pattern)
+	}
+
+	// Точное совпадение или совпадение в пути
+	return path == pattern ||
+		   strings.HasSuffix(path, "/"+pattern) ||
+		   strings.Contains(path, "/"+pattern+"/")
 }

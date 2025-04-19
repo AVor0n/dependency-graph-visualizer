@@ -89,7 +89,7 @@ export const EXPORTED_CONST = "exported value";
 	dependencyService.FindConstants(testFile)
 
 	// Проверяем результаты
-	expectedConstants := 7 // Количество констант в тестовом файле (без функции)
+	expectedConstants := 8 // Количество констант в тестовом файле (без функции)
 	if len(dependencyService.Graph.Nodes) != expectedConstants {
 		t.Errorf("Ожидается %d констант, получено: %d", expectedConstants, len(dependencyService.Graph.Nodes))
 	}
@@ -321,8 +321,8 @@ const USER_URL = API_URL + "/user";
 
 	// Проверяем результаты
 	// Учитывая, что API_URL определен в трех файлах, а TIMEOUT в двух,
-	// общее количество констант должно быть 5
-	expectedConstants := 5
+	// общее количество констант должно быть 7
+	expectedConstants := 7
 	if len(dependencyService.Graph.Nodes) != expectedConstants {
 		t.Errorf("Ожидается %d констант, получено: %d", expectedConstants, len(dependencyService.Graph.Nodes))
 	}

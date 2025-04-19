@@ -93,26 +93,73 @@ func (ds *DependencyService) FindConstants(filePath string) {
 
 	// Отслеживаем уровень вложенности блоков кода
 	blockDepth := 0
+	inObjectDeclaration := false
+	currentObjectName := ""
 
 	for lineNum, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
 
+		// Пропускаем пустые строки и комментарии
+		if trimmedLine == "" || strings.HasPrefix(trimmedLine, "//") {
+			continue
+		}
+
 		// Отслеживаем уровень вложенности
-		blockDepth += strings.Count(line, "{") - strings.Count(line, "}")
+		openBraces := strings.Count(line, "{")
+		closeBraces := strings.Count(line, "}")
+		blockDepth += openBraces - closeBraces
 
-		// Игнорируем строки с закрывающими скобками (они могут уменьшить blockDepth)
-		if strings.Contains(trimmedLine, "}") {
+		// Проверяем начало объявления объекта
+		if strings.Contains(trimmedLine, "={") || strings.Contains(trimmedLine, "= {") {
+			inObjectDeclaration = true
+			// Сохраняем имя объекта, если это константа
+			if strings.HasPrefix(trimmedLine, "const ") || strings.HasPrefix(trimmedLine, "export const ") {
+				parts := strings.Fields(trimmedLine)
+				if len(parts) >= 2 {
+					if strings.HasPrefix(trimmedLine, "export const") && len(parts) >= 3 {
+						currentObjectName = parts[2]
+					} else {
+						currentObjectName = parts[1]
+					}
+					currentObjectName = strings.Split(currentObjectName, "=")[0]
+					currentObjectName = strings.TrimSpace(currentObjectName)
+				}
+			}
+		}
+
+		// Проверяем конец объявления объекта
+		if inObjectDeclaration && closeBraces > 0 && blockDepth == 0 {
+			inObjectDeclaration = false
+			// Если это был объект-константа, добавляем его
+			if currentObjectName != "" {
+				// Создаем константу для объекта
+				constant := models.Constant{
+					Name:     currentObjectName,
+					Value:    "object",
+					Type:     "object",
+					FilePath: filePath,
+					LineNum:  lineNum + 1,
+				}
+
+				// Безопасно добавляем константу в граф
+				ds.GraphMutex.Lock()
+				ds.Graph.Nodes = append(ds.Graph.Nodes, constant)
+				ds.ConstantMap[currentObjectName] = true
+				ds.GraphMutex.Unlock()
+
+				log.Printf("Found constant %s in file %s at line %d\n", currentObjectName, filePath, lineNum+1)
+				currentObjectName = ""
+			}
+		}
+
+		// Если мы внутри объявления объекта, пропускаем строку
+		if inObjectDeclaration {
 			continue
 		}
 
-		// Проверяем, что мы находимся на верхнем уровне файла
-		if blockDepth > 0 {
-			continue
-		}
-
-		// Поиск объявлений const
-		if (strings.HasPrefix(trimmedLine, "const ") || strings.HasPrefix(trimmedLine, "export const ")) &&
-		   !strings.Contains(trimmedLine, "function") && !strings.Contains(trimmedLine, "=>") {
+		// Если мы находимся на верхнем уровне файла
+		if blockDepth == 0 && (strings.HasPrefix(trimmedLine, "const ") || strings.HasPrefix(trimmedLine, "export const ")) &&
+			!strings.Contains(trimmedLine, "function") && !strings.Contains(trimmedLine, "=>") {
 			// Извлекаем имя константы
 			parts := strings.Fields(trimmedLine)
 			if len(parts) >= 2 {
@@ -145,6 +192,8 @@ func (ds *DependencyService) FindConstants(filePath string) {
 					constType = "string"
 				} else if strings.HasPrefix(value, "{") {
 					constType = "object"
+					// Пропускаем, так как уже обработали объекты выше
+					continue
 				} else if strings.HasPrefix(value, "[") {
 					constType = "array"
 				} else if value == "true" || value == "false" {
@@ -176,9 +225,10 @@ func (ds *DependencyService) FindConstants(filePath string) {
 
 // FindDependencies находит зависимости между константами
 func (ds *DependencyService) FindDependencies(filePath string) {
-	content, err := os.ReadFile(filePath)
+	// Проверяем существование файла
+	_, err := os.Stat(filePath)
 	if err != nil {
-		log.Printf("Error reading file %s: %v\n", filePath, err)
+		log.Printf("Error accessing file %s: %v\n", filePath, err)
 		return
 	}
 
@@ -190,40 +240,43 @@ func (ds *DependencyService) FindDependencies(filePath string) {
 	}
 	ds.GraphMutex.RUnlock()
 
-	// Ищем использование констант в файле
-	for _, constant := range constants {
-		// Ищем все вхождения константы в файле
-		matches := strings.Count(string(content), constant)
+	// Ищем зависимости между константами в этом файле
 
-		if matches > 0 {
-			// Для каждой найденной константы ищем зависимости от других констант
-			// В этом простом примере мы считаем, что константа A зависит от константы B,
-			// если обе объявлены в одном файле и A использует B в своем определении
+	// Карта констант в этом файле
+	fileConstants := make(map[string]models.Constant)
 
-			ds.GraphMutex.RLock()
-			for _, node := range ds.Graph.Nodes {
-				// Проверяем, что это не та же самая константа и она объявлена в том же файле
-				if node.Name != constant && node.FilePath == filePath {
-					// Если значение константы содержит другую константу
-					if strings.Contains(node.Value, constant) {
-						// Добавляем зависимость
-						dependency := models.Dependency{
-							Source: node.Name,
-							Target: constant,
-						}
+	// Заполняем карту констант для этого файла
+	ds.GraphMutex.RLock()
+	for _, node := range ds.Graph.Nodes {
+		if node.FilePath == filePath {
+			fileConstants[node.Name] = node
+		}
+	}
+	ds.GraphMutex.RUnlock()
 
-						// Освобождаем блокировку для чтения перед взятием блокировки для записи
-						ds.GraphMutex.RUnlock()
-						ds.GraphMutex.Lock()
-						ds.Graph.Edges = append(ds.Graph.Edges, dependency)
-						ds.GraphMutex.Unlock()
-						ds.GraphMutex.RLock()
-
-						log.Printf("Found dependency: %s -> %s in file %s\n", node.Name, constant, filePath)
-					}
-				}
+	// Для каждой константы из файла ищем зависимости
+	for constName, constant := range fileConstants {
+		// Ищем использование других констант в значении этой константы
+		for otherName := range fileConstants {
+			// Пропускаем сравнение константы с самой собой
+			if constName == otherName {
+				continue
 			}
-			ds.GraphMutex.RUnlock()
+
+			// Проверяем, содержит ли значение константы имя другой константы
+			if strings.Contains(constant.Value, otherName) {
+				// Добавляем зависимость
+				dependency := models.Dependency{
+					Source: constName,
+					Target: otherName,
+				}
+
+				ds.GraphMutex.Lock()
+				ds.Graph.Edges = append(ds.Graph.Edges, dependency)
+				ds.GraphMutex.Unlock()
+
+				log.Printf("Found dependency: %s -> %s in file %s\n", constName, otherName, filePath)
+			}
 		}
 	}
 }
@@ -249,50 +302,22 @@ func (ds *DependencyService) GetFileDependencies(filePath string) models.Depende
 		Edges: []models.Dependency{},
 	}
 
-	// Карта для отслеживания добавленных узлов
-	addedNodes := make(map[string]bool)
+	// Карта для отслеживания констант, которые относятся к этому файлу
+	fileConstants := make(map[string]bool)
 
 	// Добавляем все константы из выбранного файла
 	for _, node := range ds.Graph.Nodes {
 		if node.FilePath == fileAbsPath {
 			subgraph.Nodes = append(subgraph.Nodes, node)
-			addedNodes[node.Name] = true
+			fileConstants[node.Name] = true
 		}
 	}
 
-	// Добавляем зависимости для этих констант
+	// Добавляем только зависимости между константами из этого файла
 	for _, edge := range ds.Graph.Edges {
-		// Если исходная константа из нашего файла
-		if addedNodes[edge.Source] {
-			// Добавляем ребро
+		// Добавляем ребро только если обе константы находятся в файле
+		if fileConstants[edge.Source] && fileConstants[edge.Target] {
 			subgraph.Edges = append(subgraph.Edges, edge)
-
-			// Проверяем, есть ли целевая константа в подграфе
-			if !addedNodes[edge.Target] {
-				// Ищем целевую константу в общем графе
-				for _, node := range ds.Graph.Nodes {
-					if node.Name == edge.Target {
-						subgraph.Nodes = append(subgraph.Nodes, node)
-						addedNodes[node.Name] = true
-						break
-					}
-				}
-			}
-		}
-
-		// Если целевая константа из нашего файла
-		if addedNodes[edge.Target] && !addedNodes[edge.Source] {
-			// Добавляем ребро
-			subgraph.Edges = append(subgraph.Edges, edge)
-
-			// Ищем исходную константу в общем графе
-			for _, node := range ds.Graph.Nodes {
-				if node.Name == edge.Source {
-					subgraph.Nodes = append(subgraph.Nodes, node)
-					addedNodes[node.Name] = true
-					break
-				}
-			}
 		}
 	}
 
